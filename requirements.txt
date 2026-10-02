@@ -1,0 +1,11 @@
+# Everything this package uses.  All four are already in the environment the
+# original notebook runs in; nothing else is needed and nothing is pinned
+# tightly, because none of it depends on recent behaviour.
+numpy>=1.24
+scipy>=1.10
+torch>=2.0
+matplotlib>=3.6
+
+# optional, only to execute the notebooks headless:
+#   nbclient>=0.7
+#   nbformat>=5.7
