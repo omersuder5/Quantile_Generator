@@ -237,7 +237,12 @@ def render_txt(r):
     A("")
     A(f"  ESN realisation  max|ESN - direct recursion| = {r['esn']['error']}")
     A(f"  ESN size N = {r['esn']['N']}  (W + (m-1) shift units + 1 constant)")
-    A(f"  final training loss {r['fit']['final_loss']:.6f}"
+    ft = r["fit"]
+    A(f"  training   loss {ft['final_loss']:.6f} (best {ft.get('best_loss', float('nan')):.6f})"
+      f"   {ft.get('epochs_run', '?')} epochs")
+    A(f"             cosine anneal to zero, "
+      f"final lr {ft.get('final_lr', float('nan')):.2e}")
+    A(f"             backend {ft.get('device', '?')} / {ft.get('dtype', '?')}"
       f"   wall time {r['secs']:.0f}s")
     return "\n".join(out) + "\n"
 
@@ -276,6 +281,10 @@ _SUMMARY_FIELDS = [
     ("premium_tru", lambda r: r["pricing"]["target"]["premium"]),
     ("premium_gen", lambda r: r["pricing"]["generated"]["premium"]),
     ("esn_err", lambda r: r["esn"]["error"]),
+    ("epochs_run", lambda r: r["fit"].get("epochs_run")),
+    ("final_lr", lambda r: r["fit"].get("final_lr")),
+    ("device", lambda r: r["fit"].get("device")),
+    ("dtype", lambda r: r["fit"].get("dtype")),
     ("cross_frac", lambda r: r["repair"]["cross_frac"]),
     ("inv_R", lambda r: r["repair"]["inv_R"]),
     ("repairs", lambda r: "; ".join(r["repair"]["repairs_needed"])),

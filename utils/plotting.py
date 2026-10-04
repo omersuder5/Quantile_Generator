@@ -27,8 +27,8 @@ import matplotlib.pyplot as plt
 # notebook keeps its inline backend, which forcing Agg here would silently
 # break (every plt.show() would render nothing).
 
-__all__ = ["STYLE", "C_TARGET", "C_GEN", "C_BASE", "panel_figure",
-           "sweep_figure", "overview_figure"]
+__all__ = ["STYLE", "C_TARGET", "C_GEN", "C_BASE", "C_RULE", "C_BOUND",
+           "ramp", "panel_figure", "sweep_figure", "overview_figure"]
 
 C_TARGET = "#2a78d6"
 C_GEN = "#eb6834"
@@ -44,6 +44,22 @@ STYLE = {
     "baseline":  dict(color=C_BASE,   ls=":",  marker="^", ms=3.5, lw=1.6,
                       label="matched Gaussian AR"),
 }
+
+
+def ramp(n):
+    """`n` colours from the target blue to the bound red, in that order.
+
+    For a figure whose series are one SWEEP of a single knob rather than the
+    three fixed roles above.  The direction carries the meaning: blue is the end
+    where the hypothesis holds, red the end where it has failed, so the eye
+    reads the sweep as going wrong rather than as eight arbitrary categories.
+    """
+    import numpy as _np
+    a = _np.array([int(C_TARGET[i:i + 2], 16) for i in (1, 3, 5)], dtype=float)
+    b = _np.array([int(C_BOUND[i:i + 2], 16) for i in (1, 3, 5)], dtype=float)
+    t = _np.linspace(0.0, 1.0, max(int(n), 1))[:, None]
+    rgb = (a[None, :] * (1 - t) + b[None, :] * t).round().astype(int)
+    return ["#%02x%02x%02x" % tuple(c) for c in rgb]
 
 
 def _tidy(ax):

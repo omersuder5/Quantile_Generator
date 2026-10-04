@@ -30,7 +30,9 @@ and not merely accurate: in the 21-run study
 `max |ESN - direct recursion| = 7.8e-16` over every run, including m = 32.
 """
 import numpy as np
+import torch
 
+from backend import to_np
 from .quantile_generator import SoftClip, probit_np
 
 __all__ = ["ESNRealization"]
@@ -53,11 +55,11 @@ class ESNRealization:
             raise ValueError("the exact shift needs an activation affine on an "
                              "interval; tanh provably has none")
         W, m = net.width, net.m
-        G = net.G.detach().numpy()
-        c = net.c.detach().numpy()
-        z_ = net.zeta.detach().numpy()
-        a = net.a.detach().numpy()
-        b = float(net.b.detach().numpy()[0])
+        G = to_np(net.G)
+        c = to_np(net.c)
+        z_ = to_np(net.zeta)
+        a = to_np(net.a)
+        b = float(to_np(net.b)[0])
 
         N = W + (m - 1) + 1
         self.N, self.m, self.k, self.beta = N, m, m, float(beta)

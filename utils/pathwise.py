@@ -40,8 +40,16 @@ from generators.simulate_paths import shared_pair, initial_spread
 __all__ = ["pathwise_report", "synchronisation_report"]
 
 
-def pathwise_report(target, recursion, theta, m, n=20000, burn=2000, seed=7):
-    """Realised pathwise error against its bound, on a shared stream."""
+def pathwise_report(target, recursion, theta, m, n=20000, burn=2000, seed=7,
+                    n_head=500):
+    """Realised pathwise error against its bound, on a shared stream.
+
+    `x_head` and `xhat_head` are the first `n_head` steps of the two coupled
+    paths themselves, not only their difference.  Overlaying them is the figure
+    that shows what the coupling IS, and a summary that reports only the error
+    hides whether the two paths track each other or merely happen to have
+    similar amplitude.
+    """
     xt, xh, err = shared_pair(target, recursion, n=n, burn=burn, seed=seed)
     bound = target.bound(theta, m)
     finite = bound == bound                                   # not nan
@@ -57,6 +65,8 @@ def pathwise_report(target, recursion, theta, m, n=20000, burn=2000, seed=7):
         "amplification": float(1.0 / (1.0 - target.S_m(m)))
                          if target.S_m(m) < 1 else None,
         "err_head": err[:1500].tolist(),
+        "x_head": xt[:n_head].tolist(),
+        "xhat_head": xh[:n_head].tolist(),
     }
 
 
@@ -76,4 +86,7 @@ def synchronisation_report(recursion, M=1.0, n_steps=80, n_starts=24,
     return {"spread_half": float(spread[half]),
             "spread_end": float(spread[-1]),
             "spread": spread.tolist(),
+            # the trajectories themselves, so the collapse can be SEEN as the
+            # chains merging and not only inferred from a decaying scalar
+            "trajectories": trj.tolist(),
             "n_starts": int(n_starts), "n_steps": int(n_steps)}

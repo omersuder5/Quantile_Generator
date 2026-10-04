@@ -100,6 +100,7 @@ def conditional_report(tru, gen, baseline=None, n_bins=18,
         out["cond_sd_base"] = sd_b.tolist()
         out["cond_sd_range_base"] = rng_(sd_b)
         out["cond_w1_base"] = agg_b
+        out["cond_w1_profile_base"] = w_b.tolist()
         out["cond_sd_range_ratio_base"] = (float(rng_(sd_b) / rt)
                                            if rt and rt == rt and rt > 1e-9 else None)
     if scale_is_state_dependent is False:

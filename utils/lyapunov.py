@@ -28,6 +28,7 @@ S = 4(1-rho) can exceed 1 while lambda stays negative.
 import numpy as np
 import torch
 
+from backend import to_np
 from generators.simulate_paths import make_windows
 
 __all__ = ["lyapunov", "lyapunov_decomposition"]
@@ -48,12 +49,13 @@ def lyapunov(net, path, n_u=16, n_max=20000):
     if len(p) <= m:
         raise ValueError("path too short for the lag dimension")
     Zw, _ = make_windows(p, m)
-    z = torch.tensor(Zw, dtype=torch.float32, requires_grad=True)
+    dev, dt = net.device, net.dtype
+    z = torch.as_tensor(Zw, dtype=dt, device=dev).requires_grad_(True)
     tot = 0.0
     for uu in np.linspace(0.02, 0.98, n_u):
-        g, = torch.autograd.grad(net(torch.full((len(z),), float(uu)), z).sum(),
-                                 z, retain_graph=True)
-        s = np.abs(g.detach().numpy()).sum(1)
+        u = torch.full((len(z),), float(uu), dtype=dt, device=dev)
+        g, = torch.autograd.grad(net(u, z).sum(), z, retain_graph=True)
+        s = np.abs(to_np(g)).sum(1)
         tot += float(np.mean(np.log(s + 1e-300)))
     return tot / n_u, (m == 1)
 

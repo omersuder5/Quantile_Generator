@@ -39,6 +39,7 @@ import torch
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import config as CFG
+from backend import resolve, describe
 from generators.synthetic_generators import build_target
 from generators.quantile_generator import ClosedQuantileRecursion
 from generators.esn_realization import ESNRealization
@@ -145,6 +146,8 @@ def run_one(spec, outdir, specifics=None, diagnostics=None, verbose=False,
     Z, Xs = make_windows(path, m)
 
     # --- fit ---------------------------------------------------------------
+    dev, dt = resolve(getattr(CFG, "DEVICE", "auto"),
+                      getattr(CFG, "DTYPE", "float32"))
     net, fitinfo = fit(Z, Xs, m, objective=T["objective"], width=N["width"],
                        act=N["act"], seed_net=N["seed_net"], v_mode=N["v_mode"],
                        v_clip=N["v_clip"], epochs=T["epochs"], batch=T["batch"],
@@ -153,7 +156,7 @@ def run_one(spec, outdir, specifics=None, diagnostics=None, verbose=False,
                        tail_frac=T["tail_frac"], edge=T["edge"],
                        u_min=T["u_min"], M=M, mmd_block=T["mmd_block"],
                        mmd_batch=T["mmd_batch"], mmd_burn=T["mmd_burn"],
-                       verbose=verbose)
+                       device=dev, dtype=dt, verbose=verbose)
     rec = ClosedQuantileRecursion(net)
     if diag.get("save_net"):
         torch.save({"state_dict": net.state_dict(), "m": m,
@@ -287,6 +290,11 @@ def main(argv=None):
     if args.only:
         grid = [g for g in grid if g["dirname"] in set(args.only)]
 
+    dev, dt = resolve(getattr(CFG, "DEVICE", "auto"),
+                      getattr(CFG, "DTYPE", "float32"))
+    print(describe(dev, dt))
+    print("  (the fit runs there; generation is numpy on the CPU, sequential "
+          "along a chain and\n   batched across chains, see backend.py)")
     print(f"{len(grid)} configuration(s); axes varying: "
           f"{', '.join(varying) if varying else 'none'}")
     for g in grid:
@@ -301,7 +309,8 @@ def main(argv=None):
                 "TARGET_SPECIFICS": CFG.TARGET_SPECIFICS, "DATA": CFG.DATA,
                 "NET": CFG.NET, "TRAIN": CFG.TRAIN, "EVAL": CFG.EVAL,
                 "DIAGNOSTICS": CFG.DIAGNOSTICS, "quick": bool(args.quick),
-                "varying_axes": varying},
+                "varying_axes": varying,
+                "device": str(dev), "dtype": str(dt).replace("torch.", "")},
                os.path.join(root, "config_used.json"))
     log = open(os.path.join(root, "run.log"), "a")
 
@@ -330,6 +339,8 @@ def main(argv=None):
                 f"cond W1 {r['conditional']['cond_w1']:.4f}   "
                 f"sup err {pw.get('sup_err', float('nan')):.4f}"
                 + (f" vs bound {pw['bound']:.3f}" if pw.get("bound") else "")
+                + (f"\n    {r['fit']['epochs_run']} epochs"
+                   + f", final lr {r['fit']['final_lr']:.1e}")
                 + (f"\n    NOTE: {r['lip_mode_forced']}" if r["lip_mode_forced"] else ""))
         except Exception:                                    # noqa: BLE001
             say(f"    FAILED\n{traceback.format_exc()}")

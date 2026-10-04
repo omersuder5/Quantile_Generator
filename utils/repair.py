@@ -52,10 +52,12 @@ def crossing_report(net, Z, n_u=200, max_windows=2000):
 def du_min(net, M=1.0, n=3000, n_u=120, seed=0):
     """min over the BOX of d qhat / d u.  Negative means non-monotone there."""
     rng = np.random.default_rng(seed)
-    z = torch.tensor(rng.uniform(-M, M, (n, net.m)), dtype=torch.float32)
+    dev, dt = net.device, net.dtype
+    z = torch.as_tensor(rng.uniform(-M, M, (n, net.m)), dtype=dt, device=dev)
     lo = np.inf
     for uu in np.linspace(1e-4, 1 - 1e-4, n_u):
-        u = torch.full((n,), float(uu), requires_grad=True)
+        u = torch.full((n,), float(uu), dtype=dt, device=dev,
+                       requires_grad=True)
         g, = torch.autograd.grad(net(u, z).sum(), u)
         lo = min(lo, float(g.min()))
     return lo

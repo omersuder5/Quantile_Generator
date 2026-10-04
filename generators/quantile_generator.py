@@ -26,6 +26,8 @@ import torch
 import torch.nn as nn
 from scipy.stats import norm
 
+from backend import guard, to_np
+
 __all__ = ["SoftClip", "ACTS", "QuantileNet", "ClosedQuantileRecursion",
            "probit_np", "rearrange_levels", "project_to_X", "RepairedRecursion"]
 
@@ -92,7 +94,7 @@ class QuantileNet(nn.Module):
                 without it.
     """
     def __init__(self, m, width=256, act="softclip", seed=0, v_mode="u",
-                 v_clip=2.5):
+                 v_clip=2.5, device=None, dtype=None):
         super().__init__()
         if act not in ACTS:
             raise ValueError(f"unknown activation {act!r}; choose from {sorted(ACTS)}")
@@ -102,11 +104,31 @@ class QuantileNet(nn.Module):
         self.width, self.act_name = int(width), act
         self.v_mode, self.v_clip = v_mode, float(v_clip)
         self.sigma, self.dsup = ACTS[act]
+        # Initialised on the CPU in float32 whatever the target device, so the
+        # draw depends on `seed` alone: the same seed gives the same network on
+        # a CPU and on a GPU, in either precision, and only the arithmetic
+        # afterwards differs.
         self.G = nn.Parameter(torch.randn(width, self.m) / np.sqrt(self.m))
         self.c = nn.Parameter(torch.randn(width))
         self.zeta = nn.Parameter(0.1 * torch.randn(width))
         self.a = nn.Parameter(torch.randn(width) / np.sqrt(width))
         self.b = nn.Parameter(torch.zeros(1))
+        if device is not None or dtype is not None:
+            dev, dt = guard(device, dtype)
+            self.to(device=dev, dtype=dt)
+
+    @property
+    def device(self):
+        return self.G.device
+
+    @property
+    def dtype(self):
+        return self.G.dtype
+
+    def new_tensor_like(self, data):
+        """numpy -> tensor on this network's device and dtype."""
+        return torch.as_tensor(np.asarray(data), dtype=self.dtype,
+                               device=self.device)
 
     def phi(self, u):
         if self.v_mode == "u":
@@ -130,9 +152,10 @@ class QuantileNet(nn.Module):
 
     @torch.no_grad()
     def q_np(self, u, z):
-        u = torch.as_tensor(np.atleast_1d(u), dtype=torch.float32)
-        z = torch.as_tensor(np.atleast_2d(z), dtype=torch.float32)
-        return self.forward(u, z).numpy()
+        """numpy in, numpy float64 out, from whatever device the net is on."""
+        u = torch.as_tensor(np.atleast_1d(u), dtype=self.dtype, device=self.device)
+        z = torch.as_tensor(np.atleast_2d(z), dtype=self.dtype, device=self.device)
+        return to_np(self.forward(u, z))
 
 
 # ---------------------------------------------------------------------------
@@ -142,18 +165,39 @@ class QuantileNet(nn.Module):
 class ClosedQuantileRecursion:
     """xhat_t = qhat(u_t; xhat_{t-1}, ..., xhat_{t-m}), in numpy.
 
-    Detached from the torch graph on construction, so generation is cheap and
-    the object is picklable.
+    Detached from the torch graph and pulled off the accelerator at
+    construction, into numpy float64.  Deliberate, and not a missing GPU path.
+
+    Three step methods, differing only in what is held fixed:
+
+      `q(u, z)`        one chain, one step.  Scalar in, scalar out.  Measured at
+                       14.3 us on a width-256 net, the same at m = 2 and m = 16,
+                       so the cost is call overhead rather than the 256 x m
+                       product.  A GPU kernel launch is of the same order, which
+                       is why a single chain is not a GPU problem.
+      `q_vec(u, Z)`    a batch of (u, z) PAIRS, unrelated to each other.  Used
+                       by the diagnostics, which evaluate the map on a cloud of
+                       windows at once.
+      `q_batch(u, Z)`  one step of B independent CHAINS.  Same arithmetic as
+                       `q_vec`, different contract: the caller keeps the B
+                       states and advances them together.  3x to 5x the
+                       throughput of a loop over chains.
+
+    Along one chain nothing can be batched, x_t depending on x_{t-1}.  Across
+    chains the recursion is embarrassingly parallel, which `q_batch` exists to
+    exploit; see `backend` for which diagnostics take which form, and why the
+    free-running evaluation path stays a single long trajectory for a
+    statistical reason rather than a technical one.
     """
     def __init__(self, net):
         self.net = net
         self.m = int(net.m)
         self.k = self.m
-        self.G = net.G.detach().numpy().astype(np.float64)
-        self.c = net.c.detach().numpy().astype(np.float64)
-        self.zeta = net.zeta.detach().numpy().astype(np.float64)
-        self.a = net.a.detach().numpy().astype(np.float64)
-        self.b = float(net.b.detach().numpy()[0])
+        self.G = to_np(net.G)
+        self.c = to_np(net.c)
+        self.zeta = to_np(net.zeta)
+        self.a = to_np(net.a)
+        self.b = float(to_np(net.b)[0])
         self.beta = getattr(net.sigma, "beta", None)
         self.act = net.act_name
         self.v_mode = getattr(net, "v_mode", "u")
@@ -176,6 +220,21 @@ class ClosedQuantileRecursion:
         v = u if self.v_mode == "u" else probit_np(u, self.v_clip)
         H = self._sigma(Z @ self.G.T + self.c[None, :] * v[:, None] + self.zeta[None, :])
         return H @ self.a + self.b
+
+    def q_batch(self, u, Z):
+        """One step of B independent chains at once, or None if there is none.
+
+        Same contract as `q`, applied row-wise: `u` has length B, `Z` is (B, m),
+        the return is length B.  Returning None is how a subclass says its step
+        has no faithful batched form, and the caller must fall back to a loop
+        over chains; see `RepairedRecursion.q_batch`.
+
+        This is the one real parallelism in generation.  WITHIN a chain nothing
+        can be batched, x_t depending on x_{t-1}.  ACROSS chains the recursion
+        is embarrassingly parallel, and that is worth exploiting wherever the
+        quantity wanted is a set of chains rather than one long path.
+        """
+        return self.q_vec(u, Z)
 
     def generate(self, n, burn=2000, seed=0, u_stream=None, z0=None):
         rng = np.random.default_rng(seed)
@@ -244,3 +303,17 @@ class RepairedRecursion(ClosedQuantileRecursion):
         else:
             x = super().q(u, z)
         return float(np.clip(x, -self.M, self.M)) if self.project else x
+
+    def q_batch(self, u, Z):
+        """Pi_X is pointwise, so it batches; R on a level grid does not.
+
+        The grid rearrangement needs its own interpolation table per chain, so
+        there is no honest vectorised form and this returns None, which makes
+        the caller loop.  `monotone_grid` is off by default and is only switched
+        on for the fits whose crossing fraction is nonzero, so the fast path is
+        the usual one.
+        """
+        if self.monotone_grid:
+            return None
+        x = super().q_batch(u, Z)
+        return np.clip(x, -self.M, self.M) if self.project else x

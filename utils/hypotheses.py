@@ -35,6 +35,8 @@ against 0.81 on the data support.
 import numpy as np
 import torch
 
+from backend import to_np
+
 __all__ = ["verify_assumptions", "lipschitz_empirical", "theta_hat",
            "theta_profile", "theta_trimmed", "hypothesis_report"]
 
@@ -89,15 +91,17 @@ def lipschitz_empirical(net, z, n_u=32):
     """Per-lag sup_z |d qhat / d z_i| over the supplied windows.
 
     Sum it for the quantity to compare against S_m.  The level grid spans
-    [1e-3, 1-1e-3], so the extreme-level maxima are seen.
+    [1e-3, 1-1e-3], so the extreme-level maxima are seen.  Runs on whatever
+    device the network is on and returns numpy float64.
     """
-    z = torch.tensor(np.asarray(z), dtype=torch.float32, requires_grad=True)
-    per = torch.zeros(net.m)
+    dev, dt = net.device, net.dtype
+    z = torch.as_tensor(np.asarray(z), dtype=dt, device=dev).requires_grad_(True)
+    per = torch.zeros(net.m, dtype=dt, device=dev)
     for uu in np.linspace(1e-3, 1 - 1e-3, n_u):
-        u = torch.full((len(z),), float(uu))
+        u = torch.full((len(z),), float(uu), dtype=dt, device=dev)
         gr, = torch.autograd.grad(net(u, z).sum(), z)
         per = torch.maximum(per, gr.abs().max(0).values)
-    return per.detach().numpy()
+    return to_np(per)
 
 
 def theta_hat(net, target, region="data", Z_data=None, M=1.0, m=None,

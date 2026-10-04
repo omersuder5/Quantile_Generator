@@ -136,9 +136,21 @@ NET = dict(
 TRAIN = dict(
     objective=["pinball"],   # "pinball" (proper, conditional) or "mmd"
                              # (path-law, for the comparison)
-    epochs=[300],            # 300 at T = 60k is about 15 min per configuration
+    epochs=[300],            # a COUNT: the rate anneals to zero over exactly
+                             # this many, and there is no early stopping
     batch=[512],
     lr=[3e-3],
+
+    # --- the learning rate ----------------------------------------------
+    # A cosine anneal from `lr` to zero over `epochs`, returning the LAST
+    # iterate.  No knob: no schedule choice, no early stopping, no best-loss
+    # restore.  That is measured, not lazy.  With the loss held constant to 0.6
+    # per cent, variants moved W1/sd over a factor of twenty (0.0156 to 0.3098,
+    # linear at S=0.75), because anything selecting an iterate BY LOSS leaves a
+    # bias in the conditional median that 1/(1-S_m) then multiplies.  Do not
+    # re-add them; the table is in claude/quantile-generator-package.md.
+    # If a run feels slow, lower `epochs` or `T_train`.
+    # --------------------------------------------------------------------
     lip_mode=["penalty"],    # "penalty" | "project" | "none".  Forced to
                              # "none" automatically when the target has S >= 1
     pen_region=["hood"],     # "hood" (a neighbourhood of the data) | "box" | "data"
@@ -207,7 +219,64 @@ DIAGNOSTICS = dict(
 
 REPORTS_DIR = "reports"
 RESUME = True          # skip a configuration whose results.json already exists
-TORCH_THREADS = 2
+TORCH_THREADS = 2      # CPU threads; ignored on a GPU
+
+# ---------------------------------------------------------------------------
+# 9. Where the tensors live.  Scalars, not swept.
+# ---------------------------------------------------------------------------
+#
+# DEVICE  "cpu" | "auto" | "cuda" | "cuda:0" | "mps"
+#         The default is "cpu", deliberately, and on a Mac it should stay that
+#         way.  The Lipschitz penalty differentiates a gradient (`grad_lip`
+#         calls autograd.grad with create_graph=True, then backpropagates
+#         through it), and that double backward through the MPS kernels can
+#         abort the process rather than raise: in a notebook the kernel dies
+#         and Jupyter reports "notebook controller is DISPOSED" with no Python
+#         traceback at all.  "auto" picks MPS on a Mac, so "auto" plus
+#         lip_mode "penalty" is the combination to avoid there.  Nothing is
+#         lost by the CPU here: generation and every diagnostic are numpy on
+#         the CPU regardless, and at width 256 the fit gains little.  Set
+#         "cuda" on the cluster, where the double backward is well trodden.
+#
+#         "auto" prefers CUDA, then MPS, then CPU, and skips MPS when float64
+#         is asked for because MPS has no float64 at all.  Anything
+#         unavailable falls back to the CPU with a warning rather than
+#         killing the sweep on configuration one.
+#
+# DTYPE   "float32" | "float64"
+#
+# A GPU shortens the FIT; generation and the diagnostics are numpy on the CPU.
+# That is a choice about where the sequential work belongs, and the reason is
+# narrower than "generation cannot be parallelised", which is false.  ALONG a
+# chain nothing can be batched, x_t being a function of x_{t-1}; ACROSS chains
+# the recursion is embarrassingly parallel, and the two places where the
+# quantity wanted really is a set of chains are batched: the MMD objective
+# (`unroll_blocks`, in torch, so it does move to a GPU) and the synchronisation
+# spread (`q_batch`, in numpy, measured 3x to 5x faster than the loop).  The
+# free-running evaluation path stays ONE long trajectory because the ACF and
+# the Lyapunov average are estimates along a single stationary path; cutting it
+# into B pieces would change the estimand, not the arithmetic.
+#
+# For scale: one scalar step costs 14.3 us at width 256, identically at m = 2
+# and m = 16, so it is call overhead rather than the matrix product, and it is
+# the same order as a single GPU kernel launch.  Batching 24 chains brings that
+# to 2.5-4.5 us per chain-step; the gain saturates near 4x.
+#
+# On an NVIDIA card float64 throughput is half of float32 on a datacentre part
+# (A100, H100, V100) and a thirty-second or sixty-fourth of it on a consumer
+# one (RTX, GeForce), so float64 there is a real decision, not a free upgrade.
+# On a Mac there is no CUDA at all and MPS has no float64, so float64 means
+# the CPU.
+#
+# float32 is the default and is what every quoted number was produced with.
+# Changing the dtype does NOT change which fit you get: every random draw is
+# made on the CPU through the seeded generator and only then cast, so the
+# stream is identical across devices and precisions and a float64 run is the
+# same fit computed more precisely, agreeing to about seven decimals on the
+# loss.  Measured: float32 [0.04288297, 0.03723715, 0.03768581] against
+# float64 [0.04288296, 0.03723714, 0.03768581].
+DEVICE = "cpu"
+DTYPE = "float32"
 
 
 # ---------------------------------------------------------------------------
