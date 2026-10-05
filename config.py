@@ -35,20 +35,25 @@ NOTEBOOK vs SCRIPT
 # 1. What to fit, at what arity, at what contraction constant.  All vectors.
 # ---------------------------------------------------------------------------
 
-TARGETS = [
-    "linear",        # affine mean, constant scale: the control
-    "hetero",        # conditional scale a ridge function of z_1
-    "skew",          # conditional SKEWNESS varies; mean and variance do not
-    "smoothnl",      # nonlinear conditional mean, homoskedastic
-    "arch",          # conditional scale even in each coordinate: clustering
-    "oscillatory",   # high-frequency drift at fixed S
-    "logistic",      # chaotic drift; S >= 1 is allowed here only
-    "arma",          # infinite memory, geometric moduli
-    "longmem",       # infinite memory, polynomial moduli
-]
+TARGETS = ["garch"] # single target run: comment out for sweep
+# TARGETS = [
+#     "linear",        # affine mean, constant scale: the control
+#     "hetero",        # conditional scale a ridge function of z_1
+#     "skew",          # conditional SKEWNESS varies; mean and variance do not
+#     "smoothnl",      # nonlinear conditional mean, homoskedastic
+#     "arch",          # conditional scale even in each coordinate: clustering
+#     "oscillatory",   # high-frequency drift at fixed S
+#     "logistic",      # chaotic drift; S >= 1 is allowed here only
+#     "arma",          # infinite memory, geometric moduli
+#     "longmem",       # infinite memory, polynomial moduli
+#     # --- the two the theory EXCLUDES, kept so the exclusion is measured -----
+#     "garch",         # latent volatility, geometric memory in the SQUARES
+#     "egarch",        # the same with an exponential link and leverage
+# ]
 
 # The learner's lag dimension, and what you presume the target's memory to be.
-M = [2, 4, 8]
+M = [8]  # single arity run: comment out for sweep
+# M = [2, 4, 8, 64]  
 
 # The target's contraction constant, matched exactly.  Keep below 1 except for
 # the noise-budget experiment on `logistic` (see NOTE at the foot of this file).
@@ -98,6 +103,32 @@ TARGET_SPECIFICS = {
     # decay="polynomial" gives L_(m+1) ~ m^-alpha, the hard case;
     # "geometric" (with r) and "fractional" (with d) are the alternatives.
     "longmem":     dict(decay="polynomial", n_lag=4000, alpha=0.5),
+
+    # --- the two excluded targets ------------------------------------------
+    # beta is the variance persistence and is the whole experiment.  At a FIXED
+    # S it decides where the mass sits, and the trade is sharp.  Measured at
+    # S = 0.75, lag-1 ACF of squares and the truncation mass L_(m+1):
+    #
+    #     beta    GARCH ACFsq1   L(2)    L(8)  |  EGARCH ACFsq1   L(2)    L(8)
+    #     0.30        +0.0865   0.087   0.000  |        +0.1317  0.067   0.000
+    #     0.50        +0.0585   0.212   0.003  |        +0.0947  0.187   0.003
+    #     0.70        +0.0335   0.384   0.047  |        +0.0565  0.367   0.043
+    #     0.85        +0.0162   0.548   0.211  |        +0.0280  0.542   0.204
+    #     ARCH(2)     +0.0851   0.000   0.000      (the Markov reference)
+    #
+    # Low beta is ARCH with extra steps: all the mass in the first lags, strong
+    # clustering, nothing for an m-sweep to recover.  High beta is the real
+    # GARCH case: the clustering per unit S collapses while the truncation term
+    # grows, which is the obstruction stated quantitatively.  0.70 is chosen so
+    # BOTH are visible at once.
+    #
+    # leverage is gamma/alpha in [0,1]: the extra weight a NEGATIVE lagged
+    # return puts on tomorrow's variance.  Measured corr(X_t, X_{t+1}^2) at
+    # beta=0.70: GARCH +0.003 -> -0.005, EGARCH +0.003 -> -0.032.  The
+    # exponential link carries leverage about six times better, because its
+    # signed term enters the log-variance linearly instead of through a square.
+    "garch":       dict(beta=0.70, omega=0.05, leverage=0.6, n_lag=400),
+    "egarch":      dict(beta=0.70, kappa=0.5, leverage=0.6, n_lag=400),
 }
 
 
@@ -224,6 +255,7 @@ TORCH_THREADS = 2      # CPU threads; ignored on a GPU
 # ---------------------------------------------------------------------------
 # 9. Where the tensors live.  Scalars, not swept.
 # ---------------------------------------------------------------------------
+#
 # DEVICE  "cpu" | "auto" | "cuda" | "cuda:0" | "mps"
 #         The default is "cpu", deliberately, and on a Mac it should stay that
 #         way.  The Lipschitz penalty differentiates a gradient (`grad_lip`

@@ -36,6 +36,15 @@ misspecified in exactly the way, and priced by exactly the term, that fitting a
 long-memory target at m = 4 is.
 
 Simulation always uses the target's *full* memory.  m never enters it.
+
+**Nine of the eleven are inside the theory; two are not.**  `GARCHTarget` and
+`EGARCHTarget` are latent-volatility models, which `prop:gauss` excludes
+outright, and they are here so the exclusion can be MEASURED rather than
+asserted.  Both are made runnable by bounding the innovation so |X| <= M
+exactly, and both unroll in the observable -- GARCH's latent variance is a
+geometrically weighted sum of past SQUARES -- so q_m, the moduli, S_m and
+L_(m+1) are all well defined for them too.  See their own docstrings for what
+is faithful and what is a concession.
 """
 import numpy as np
 
@@ -44,7 +53,8 @@ from .noise import noise_fn
 __all__ = [
     "Target", "LinearTarget", "HeteroTarget", "SkewTarget", "SmoothNonlinearAR",
     "ARCHTarget", "OscDriftTarget", "NoisyLogisticTarget", "ARMATarget",
-    "LongMemoryTarget", "TARGETS", "build_target",
+    "LongMemoryTarget", "GARCHTarget", "EGARCHTarget",
+    "TARGETS", "build_target",
 ]
 
 
@@ -751,6 +761,279 @@ class LongMemoryTarget(Target):
 
 
 # ---------------------------------------------------------------------------
+# Latent-volatility targets.  These are the ones the theory EXCLUDES, kept so
+# the exclusion can be measured rather than asserted.
+# ---------------------------------------------------------------------------
+
+class GARCHTarget(Target):
+    """Bounded GARCH(1,1), optionally with a GJR leverage term.
+
+        sigma_t^2 = omega + (alpha + gamma 1{X_{t-1}<0}) X_{t-1}^2
+                          + beta sigma_{t-1}^2 ,
+        X_t       = sigma_t g(u_t) .
+
+    WHY THIS IS NOT ONE OF THE NINE.  The nine targets are m-Markov in the
+    observable, exactly or after a truncation whose cost `L_tail` prices.
+    GARCH is different in kind: its state is the LATENT sigma_t^2, and the
+    model is `prop:gauss`'s explicit exclusion.  It is here because the
+    exclusion is worth measuring.
+
+    The latent state does unroll in the observable, which is what makes the
+    experiment possible at all.  Substituting the recursion into itself,
+
+        sigma_t^2 = omega/(1-beta)
+                    + sum_{j>=0} beta^j a(x_{t-1-j}) x_{t-1-j}^2 ,
+        a(x)      = alpha + gamma 1{x < 0} ,
+
+    so GARCH is a chain with complete connections in the observable, with
+    GEOMETRICALLY decaying memory in the SQUARES.  That is the same shape as
+    `LongMemoryTarget` with `decay="geometric"`, one level up: there the memory
+    is in X, here in X^2.  Truncating at m lags therefore gives an honest q_m
+    and an honest L_(m+1), and the whole apparatus applies.
+
+    Three things still differ from the nine, and they are the experiment:
+
+    1.  BOUNDEDNESS IS IMPOSED, NOT INHERITED.  A real GARCH is unbounded; the
+        theory needs X = [-M, M].  Here the innovation is bounded, |g| <= c,
+        and c is set so that |X| <= M exactly:
+
+            sigma_max^2 = [omega + (alpha+gamma) M^2] / (1 - beta),
+            c           = M / sigma_max .
+
+        So this is a bounded process with GARCH's dependence structure, not a
+        GARCH.  The Gaussian-tail obstruction is removed by hand; what remains
+        to be tested is whether the DEPENDENCE is learnable.
+    2.  THE MEMORY IS IN THE SQUARES, so the conditional MEAN is zero at every
+        state and all the structure is in the conditional SCALE.  The pinball
+        criterion sees it, an MMD between window laws does not.
+    3.  S IS LARGE.  The per-lag moduli decay like beta^j, so S runs over many
+        lags and `1/(1-S)` is unavailable for any realistic beta.  See
+        `S_ceiling`.
+
+    Moduli.  dq/dz_j = g(u) beta^j a(z_j) z_j / sigma(z), worst case at
+    z_j = -M (so the leverage term fires) with the other lags at zero:
+
+        ell_j = c A_j M / sqrt(omega/(1-beta) + A_j M^2),
+        A_j   = beta^j (alpha + gamma) .
+
+    Exactly `ARCHTarget`'s formula with a_i replaced by A_j, which it should
+    be: ARCH(q) is GARCH with beta = 0 and q lags.
+
+    The amplitude knob scales (alpha, gamma) together at fixed ratio, with beta
+    and omega the shape.  As it grows, S saturates at
+
+        S_ceiling = sqrt(1 - beta) / (1 - sqrt(beta)) ,
+
+    which is 4.96 at beta = 0.85 and 2.41 at beta = 0.5: the ceiling is a
+    property of the variance persistence alone.
+    """
+    def __init__(self, S, beta=0.85, omega=0.05, leverage=0.0, n_lag=400,
+                 M=1.0, noise="truncnorm"):
+        self.M, self.noise = float(M), noise
+        self.beta, self.omega = float(beta), float(omega)
+        self.leverage = float(leverage)
+        self.n_lag = int(n_lag)
+        if not (0.0 <= self.beta < 1.0):
+            raise ValueError("GARCHTarget needs 0 <= beta < 1")
+        if self.omega <= 0:
+            raise ValueError("omega must be > 0 so the conditional scale is bounded below")
+        if not (0.0 <= self.leverage <= 1.0):
+            raise ValueError("leverage is gamma/alpha and must be in [0, 1]")
+
+        bj = self.beta ** np.arange(self.n_lag, dtype=float)
+        self._c0 = self.omega / (1.0 - self.beta)          # the variance floor
+        w = 1.0 + self.leverage                            # (alpha + gamma)/alpha
+
+        def S_of(lam):
+            A = lam * w * bj                               # beta^j (alpha+gamma)
+            smax2 = (self.omega + lam * w * self.M ** 2) / (1.0 - self.beta)
+            c = self.M / np.sqrt(smax2)
+            ell = c * A * self.M / np.sqrt(self._c0 + A * self.M ** 2)
+            return float(ell.sum())
+
+        lam, self.S = solve_amplitude(S_of, float(S), label="GARCHTarget")
+        self.alpha = lam
+        self.gamma = lam * self.leverage
+        self.A = (self.alpha + self.gamma) * bj
+        self.sigma_max = float(np.sqrt((self.omega + (self.alpha + self.gamma)
+                                        * self.M ** 2) / (1.0 - self.beta)))
+        self.sigma_min = float(np.sqrt(self._c0))
+        self.c = self.M / self.sigma_max
+        self._ell_full = self.c * self.A * self.M / np.sqrt(self._c0 + self.A * self.M ** 2)
+        self.g = noise_fn(noise, self.c)
+        self.k_true = None                                 # geometric, not finite
+        lev = f", gamma/alpha={self.leverage:g}" if self.leverage else ""
+        self.name = (f"GARCH(1,1), S={self.S:.3f}, beta={self.beta:g}, "
+                     f"omega={self.omega:g}{lev})")
+
+    # -- the m-truncated quantile, which is what the learner is scored against
+    def _sigma_trunc(self, z):
+        z = np.atleast_2d(np.asarray(z, dtype=float))
+        A = self._coeffs_for(z.shape[1], self.A)
+        lev = 1.0 + self.leverage * (z < 0)                # a(x)/alpha, per entry
+        return np.sqrt(self._c0 + (z ** 2 * lev) @ (A / (1.0 + self.leverage)))
+
+    def q(self, u, z):
+        u, z = self._as_uz(u, z)
+        return self._sigma_trunc(z) * self.g(u)
+
+    def step(self, gu, z):
+        return float(self._sigma_trunc(np.asarray(z, dtype=float)[None, :])[0] * gu)
+
+    def scale_contrast_bound(self):
+        """sigma_max / sigma_min, the attainable conditional-scale contrast."""
+        return float(self.sigma_max / self.sigma_min)
+
+    def S_ceiling(self):
+        """sup over the amplitude of S, a function of beta alone."""
+        return float(np.sqrt(1.0 - self.beta) / (1.0 - np.sqrt(self.beta)))
+
+    def simulate(self, n, burn=4000, seed=0, u_stream=None, z0=None):
+        """The EXACT GARCH recursion, not the n_lag truncation.
+
+        Same split as `ARMATarget` and `LongMemoryTarget`: paths come from the
+        exact process, while q, the moduli and L_tail come from the
+        m-truncation, so the truncation cost is measured rather than hidden.
+        """
+        rng = np.random.default_rng(seed)
+        total = burn + n
+        u = (rng.random(total) if u_stream is None
+             else np.asarray(u_stream, dtype=float)[:total])
+        if len(u) < total:
+            raise ValueError(f"u_stream too short: need {total}, got {len(u)}")
+        gu = self.g(u)
+        s2_max = self.sigma_max ** 2
+        # start at the unconditional variance, which exists because
+        # alpha + gamma/2 + beta < 1 is implied by the boundedness scaling
+        s2 = min(self.omega / max(1.0 - self.alpha - 0.5 * self.gamma - self.beta,
+                                  1e-6), s2_max)
+        x_prev = 0.0 if z0 is None else float(np.atleast_1d(z0)[0])
+        out = np.empty(total)
+        for t in range(total):
+            a = self.alpha + (self.gamma if x_prev < 0 else 0.0)
+            s2 = min(self.omega + a * x_prev ** 2 + self.beta * s2, s2_max)
+            out[t] = np.sqrt(s2) * gu[t]
+            x_prev = out[t]
+        return out[burn:]
+
+
+class EGARCHTarget(Target):
+    """Exponential GARCH with leverage, in log-variance form.
+
+        log sigma_t^2 = omega + beta log sigma_{t-1}^2
+                        + alpha (|X_{t-1}|/M - kappa) + gamma X_{t-1}/M ,
+        X_t           = sigma_t g(u_t) .
+
+    ONE DELIBERATE DEPARTURE FROM TEXTBOOK EGARCH, and it has to be stated.
+    Nelson's EGARCH drives the log-variance with the STANDARDISED residual
+    z_{t-1} = X_{t-1}/sigma_{t-1}, not with X_{t-1}.  Standardising makes the
+    recursion depend on the latent sigma path, so unrolling it gives no closed
+    form in the observable, and without a closed form there is no q_m to
+    compute moduli against, no theta, and nothing to compare.  Driving it with
+    the observable return keeps every structural feature the experiment is
+    about -- an exponential link, so the scale is positive by construction
+    rather than by a floor, and a signed term, so the response to a negative
+    return differs from the response to a positive one -- while unrolling
+    exactly:
+
+        log sigma_t^2 = h0 + sum_{j>=0} beta^j [alpha |x_{t-1-j}| + gamma x_{t-1-j}] / M ,
+        h0            = (omega - alpha kappa) / (1 - beta) .
+
+    So this is log-GARCH with leverage.  Call it EGARCH's structure, not
+    EGARCH.
+
+    Two identities make it the right companion to `GARCHTarget`:
+
+        ell_j = beta^j (alpha + |gamma|) / 2 ,
+        S     = (alpha + |gamma|) / (2 (1 - beta)) ,
+
+    so the amplitude is EXACTLY invertible, alpha + |gamma| = 2 S (1 - beta),
+    with no bisection; and
+
+        sigma_max / sigma_min = exp(S) ,
+
+    against ARCH's and GARCH's (1 - S)^{-1/2}.  That is the structural point of
+    including it.  The square-root family's attainable scale contrast BLOWS UP
+    at S = 1, so S < 1 is simultaneously the theory's hypothesis and the limit
+    of what the family can express; the exponential family's contrast is finite
+    for every S, so it separates the two and lets a target with a large, honest
+    conditional-scale range be posed at any S.
+
+    omega and kappa shift the log-variance level only; the innovation amplitude
+    c = M / sigma_max absorbs them, so neither changes S, the moduli, or the
+    scale contrast.  They are kept for interpretability.
+    """
+    def __init__(self, S, beta=0.85, omega=0.0, kappa=0.5, leverage=0.35,
+                 n_lag=400, M=1.0, noise="truncnorm"):
+        self.M, self.noise = float(M), noise
+        self.beta, self.omega, self.kappa = float(beta), float(omega), float(kappa)
+        self.leverage = float(leverage)
+        self.n_lag = int(n_lag)
+        if not (0.0 <= self.beta < 1.0):
+            raise ValueError("EGARCHTarget needs 0 <= beta < 1")
+        if not (0.0 <= self.leverage <= 1.0):
+            raise ValueError("leverage is |gamma|/alpha and must be in [0, 1]")
+
+        # S = (alpha + |gamma|)/(2(1-beta)) inverts in closed form.
+        tot = 2.0 * float(S) * (1.0 - self.beta)           # alpha + |gamma|
+        self.alpha = tot / (1.0 + self.leverage)
+        self.gamma = -self.alpha * self.leverage           # negative: the
+        self.S = float(S)                                  # leverage effect
+        bj = self.beta ** np.arange(self.n_lag, dtype=float)
+        self._ell_full = bj * tot / 2.0
+        self._h0 = (self.omega - self.alpha * self.kappa) / (1.0 - self.beta)
+        # sup and inf of the log-variance over the box, used for the scaling
+        per = (self.alpha + abs(self.gamma)) / (1.0 - self.beta)
+        neg = max(abs(self.gamma) - self.alpha, 0.0) / (1.0 - self.beta)
+        self._h_sup = self._h0 + per
+        self._h_inf = self._h0 - neg
+        self.sigma_max = float(np.exp(0.5 * self._h_sup))
+        self.sigma_min = float(np.exp(0.5 * self._h_inf))
+        self.c = self.M / self.sigma_max
+        self.g = noise_fn(noise, self.c)
+        self.k_true = None
+        self.name = (f"EGARCH-structure, S={self.S:.3f}, beta={self.beta:g}, "
+                     f"|gamma|/alpha={self.leverage:g})")
+
+    def _sigma_trunc(self, z):
+        z = np.atleast_2d(np.asarray(z, dtype=float))
+        bj = self._coeffs_for(z.shape[1], self.beta ** np.arange(self.n_lag))
+        h = self._h0 + (self.alpha * np.abs(z) + self.gamma * z) @ bj / self.M
+        return np.exp(0.5 * h)
+
+    def q(self, u, z):
+        u, z = self._as_uz(u, z)
+        return self._sigma_trunc(z) * self.g(u)
+
+    def step(self, gu, z):
+        return float(self._sigma_trunc(np.asarray(z, dtype=float)[None, :])[0] * gu)
+
+    def scale_contrast_bound(self):
+        """sigma_max / sigma_min = exp(S) when alpha >= |gamma|."""
+        return float(self.sigma_max / self.sigma_min)
+
+    def simulate(self, n, burn=4000, seed=0, u_stream=None, z0=None):
+        """The exact log-variance recursion, not the n_lag truncation."""
+        rng = np.random.default_rng(seed)
+        total = burn + n
+        u = (rng.random(total) if u_stream is None
+             else np.asarray(u_stream, dtype=float)[:total])
+        if len(u) < total:
+            raise ValueError(f"u_stream too short: need {total}, got {len(u)}")
+        gu = self.g(u)
+        h = self._h0
+        x_prev = 0.0 if z0 is None else float(np.atleast_1d(z0)[0])
+        out = np.empty(total)
+        for t in range(total):
+            h = (self.omega + self.beta * h
+                 + self.alpha * (abs(x_prev) / self.M - self.kappa)
+                 + self.gamma * x_prev / self.M)
+            h = min(h, self._h_sup)
+            out[t] = np.exp(0.5 * h) * gu[t]
+            x_prev = out[t]
+        return out[burn:]
+
+# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 
@@ -764,6 +1047,8 @@ TARGETS = {
     "logistic":    NoisyLogisticTarget,
     "arma":        ARMATarget,
     "longmem":     LongMemoryTarget,
+    "garch":       GARCHTarget,
+    "egarch":      EGARCHTarget,
 }
 
 

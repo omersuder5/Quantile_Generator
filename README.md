@@ -58,7 +58,7 @@ appendix.ipynb            A.1, A.2 and B; not part of the experiment
 
 generators/
     noise.py                  innovation transforms g : [0,1] -> [-c, c]
-    synthetic_generators.py   the nine targets, each S-parameterised
+    synthetic_generators.py   the eleven targets, each S-parameterised
     quantile_generator.py     SoftClip, QuantileNet, the closed recursion,
                               and the repair operators
     esn_realization.py        the exact-shift ESN block
@@ -261,7 +261,7 @@ arity sweep, seed replicates, and the noise-budget sweep across `S = 1`.
 
 ---
 
-## The nine targets
+## The targets: nine inside the theory, two outside it
 
 Each isolates one feature, and the column that can see it differs from target
 to target.
@@ -282,6 +282,87 @@ to target.
 it, not the ACF, not the ACF of squares, not the conditional standard
 deviation, and a matched Gaussian AR and a matched GARCH are both blind to it
 by construction.
+
+### The two excluded targets
+
+`garch` and `egarch` are **not** among the nine and are not claimed to satisfy
+the hypotheses.  They are here so the exclusion can be measured instead of
+asserted: `prop:gauss` rules out GARCH outright, and the question worth an
+experiment is *which* of its assumptions actually bites.
+
+| key | mechanism | why it is outside |
+|---|---|---|
+| `garch` | GARCH(1,1), optional GJR leverage | the state is the **latent** `sigma_t^2` |
+| `egarch` | the same with an exponential link and leverage | likewise, plus an unbounded log-scale |
+
+Both are made runnable by one concession and one observation.
+
+**The concession.** A real GARCH is unbounded and the theory needs
+`X = [-M, M]`, so the innovation is bounded and its amplitude is set to
+`c = M / sigma_max`, which makes `|X| <= M` exactly.  These are therefore
+*bounded processes with GARCH's dependence structure*, not GARCH processes.
+The Gaussian-tail obstruction is removed by hand; what is left to test is
+whether the **dependence** is learnable.
+
+**The observation.** Substituting the variance recursion into itself,
+
+```
+sigma_t^2 = omega/(1-beta) + sum_{j>=0} beta^j a(x_{t-1-j}) x_{t-1-j}^2,
+            a(x) = alpha + gamma 1{x<0}
+```
+
+so the latent state *does* unroll in the observable: GARCH is a chain with
+complete connections with geometrically decaying memory **in the squares**.
+That is `longmem` with `decay="geometric"`, one level up.  So `q_m`, the
+moduli, `S_m` and `L_(m+1)` are all well defined, and the whole apparatus
+applies without modification.
+
+`egarch` departs from Nelson's EGARCH in one stated way: textbook EGARCH drives
+the log-variance with the **standardised** residual `X_{t-1}/sigma_{t-1}`,
+which depends on the latent `sigma` path and so has no closed form in the
+observable — and without a closed form there is no `q_m`, no `theta`, and
+nothing to compare.  Driving it with the observable return keeps both features
+the experiment is about (an exponential link, so the scale is positive by
+construction rather than by a floor; a signed term, so a negative return moves
+the variance differently from a positive one) and unrolls exactly.  It is
+log-GARCH with leverage.  Call it EGARCH's *structure*, not EGARCH.
+
+Two identities make the pair worth having:
+
+| | attainable scale contrast `sigma_max/sigma_min` |
+|---|---|
+| `arch`, `garch` (square-root link) | `<= (1-S)^{-1/2}`, **infinite at `S = 1`** |
+| `egarch` (exponential link) | `= exp(S)`, finite at every `S` |
+
+In the square-root family `S < 1` is simultaneously the theory's hypothesis and
+the limit of what the family can express, so the two cannot be told apart.  The
+exponential family separates them: it can pose a target with a large, honest
+conditional-scale range at any `S`.  `egarch` also inverts in closed form,
+`alpha + |gamma| = 2 S (1 - beta)`, with no bisection.
+
+**`beta` is the experiment.** At a fixed `S` it decides where the modulus mass
+sits, and the trade is sharp.  Measured at `S = 0.75`:
+
+| `beta` | GARCH `ACFsq(1)` | `L(2)` | `L(8)` | EGARCH `ACFsq(1)` | `L(2)` | `L(8)` |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0.30 | +0.0865 | 0.087 | 0.000 | +0.1317 | 0.067 | 0.000 |
+| 0.50 | +0.0585 | 0.212 | 0.003 | +0.0947 | 0.187 | 0.003 |
+| **0.70** | **+0.0335** | **0.384** | **0.047** | **+0.0565** | **0.367** | **0.043** |
+| 0.85 | +0.0162 | 0.548 | 0.211 | +0.0280 | 0.542 | 0.204 |
+| `arch`(2) | +0.0851 | 0.000 | 0.000 | | | |
+
+Low `beta` is ARCH with extra steps: all the mass in the first lags, strong
+clustering, nothing for an `m`-sweep to recover.  High `beta` is the real GARCH
+case: **at matched `S` the clustering per unit `S` collapses while the
+truncation term grows.**  That is the obstruction stated quantitatively, and it
+is the reason `S` is a poor currency for latent-volatility models — matching
+`S` to a Markov target forces the GARCH to be nearly homoskedastic.  The
+default `beta = 0.70` is chosen so both effects are visible at once.
+
+`leverage` is `gamma/alpha` in `[0,1]`.  Measured `corr(X_t, X_{t+1}^2)` at
+`beta = 0.70`: GARCH `+0.003 -> -0.005`, EGARCH `+0.003 -> -0.032`.  The
+exponential link carries leverage about six times better, because its signed
+term enters the log-variance linearly rather than through a square.
 
 ---
 
@@ -311,3 +392,24 @@ Four cautions that the code cannot remove and the reports therefore state:
 3. `theta` is also a supremum over levels and the extreme levels dominate it;
    the trimmed values show by how much. No change of domain removes that.
 4. Nothing here produces a lower bound for the adapted distance.
+
+---
+
+## What changed from the earlier `ESN_MMD_Generator` code
+
+Removed: `stratify` (unused, and a positional-argument bug in its old call
+site silently disabled the tail mixture or produced NaNs); `PadTarget` and all
+`max(m, target order)` logic; `sigkernel` and the old `loss/loss.py`;
+duplicate pricing functions; `_empirical_kernel` as a public name.
+
+Kept but off by default: `v_mode="probit"`, which is a composition with a fixed
+increasing bijection and therefore leaves the moduli, uniqueness, bicausality,
+the adapted bound and the exact-shift realisation untouched — it flattens
+`dq/dv` in the tails by about a factor of seventeen, and it is off because the
+tail problem turned out to be fixable without changing the estimator's inputs.
+`pen_region` keeps all three of `box`, `hood` and `data`, defaulting to `hood`.
+
+Added: the `S`-parameterisation of every target; `theta` on the
+forward-invariant set; the `repairs_needed` verdict; a differentiable MMD, so
+"pinball against MMD on the same model class and the same diagnostics" can be
+run rather than argued about; `net.pt` per run.
