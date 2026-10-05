@@ -1,0 +1,72 @@
+==============================================================================
+oscillatory_m04    OscDrift(k=2, S=0.750, W=6)
+==============================================================================
+target key          oscillatory
+fitting arity m     4   (the memory you presume; the target's own order is 2)
+requested S         0.75   achieved 0.750000
+S_m = sum_{i<=m}     0.7500    amplification 1/(1-S_m) = 4.000
+L_(m+1) tail        0.0000    2 M L = 0.0000
+per-lag moduli      [0.5587, 0.1913, 0.0, 0.0]
+moduli num vs ana   max dev 3.16e-06
+range contained     True  [-0.9172, 0.8611]
+
+HYPOTHESES OF THE GENERATOR PROPOSITION
+  sum_i Lip_i(qhat)   box 1.1029   data 0.9405   (target S_m 0.7500)
+  per lag, box        [0.7004, 0.247, 0.1007, 0.0547]
+  theta               data 0.0838   box 0.2570   (ratio 3.1x)
+  theta on K=[-R,R]   0.1675   bound there 0.670
+  theta trimmed       eps=0.0: 0.0836  eps=0.01: 0.0836  eps=0.05: 0.0836
+  bound (theta+2ML)/(1-S_m) = 0.3351
+
+IS THE REPAIR LEMMA DOING ANYTHING?
+  crossings (data)    fraction 0.00e+00   worst increment +3.14e-03
+  min d qhat/du (box) +0.4982   (monotone there iff >= 0)
+  sup|qhat| on box    0.9653   X-valued: True
+  invariant radius R  0.900   (sup|qhat| there 0.897)
+  repairs needed      none
+
+PATHWISE, SHARED INNOVATION STREAM
+  sup_t |X-Xhat|      0.0918    mean 0.0099    99.9pct 0.0680
+  bound               0.3351   slack x3.7   holds: True
+  spread, 24 starts   t=40 2.303e-13   t=79 0.000e+00
+  E log sum|d/dz|     -0.8077   (an upper bound for the top exponent, m > 1)
+
+THE TWO LAWS, FRESH INDEPENDENT STREAMS
+  sd                  target 0.2681   generated 0.2739   ratio 1.0214
+  W1 marginal         generated 0.00520 (0.0194 sd)   matched AR 0.00924 (0.0345 sd)
+  ACF lags 1-5 target  [0.1659, 0.2134, 0.0494, 0.0514, 0.0091]
+               learned [0.1701, 0.2145, 0.0622, 0.0442, 0.0165]
+               AR      [0.1697, 0.2096, 0.0608, 0.0382, 0.0161]
+  ACF sq  target       [0.0012, 0.0404, 0.0014, 0.0056, 0.0089]
+          learned      [0.0033, 0.0425, 0.0025, 0.0106, 0.0037]
+          AR           [0.0224, 0.0437, -0.0001, 0.0012, -0.0]
+  ACFsq lag-1 ratio   not reported: the target's own value is near zero
+  cond sd range       target 0.0528   generated 0.0719   AR 0.0244
+  conditional W1      generated 0.01229   matched AR 0.03099
+  block-MMD^2 (L=4)  generated -0.000406 p=0.742   AR -0.000203 p=0.609
+
+  marginal quantiles   (err/sd is the honest column; the ratio blows up
+                        wherever the target quantile crosses zero)
+     level    target   learned    err/sd     ratio
+     0.001   -0.6523   -0.6530   -0.0029     1.001
+     0.005   -0.5981   -0.6008   -0.0100     1.004
+     0.010   -0.5658   -0.5691   -0.0123     1.006
+     0.050   -0.4440   -0.4527   -0.0327     1.020
+     0.500   -0.0042   -0.0050   -0.0033       n/a
+     0.950    0.4462    0.4648    0.0696     1.042
+     0.990    0.5864    0.5884    0.0076     1.003
+     0.995    0.6311    0.6183   -0.0476     0.980
+     0.999    0.7052    0.6623   -0.1600     0.939
+
+  European put (K=0.1, 5 dates)
+    target 0.16805   generated 0.17003   AR 0.16724
+  Bermudan put
+    target 0.34941   generated 0.35447   AR 0.34641
+  early-exercise premium  (the functional that needs the adapted structure)
+    target 0.18135   generated 0.18444   AR 0.17918
+
+  ESN realisation  max|ESN - direct recursion| = 4.440892098500626e-16
+  ESN size N = 260  (W + (m-1) shift units + 1 constant)
+  training   loss 0.059890 (best 0.058942)   300 epochs
+             cosine anneal to zero, final lr 0.00e+00
+             backend cpu / float32   wall time 292s

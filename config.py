@@ -48,7 +48,7 @@ TARGETS = [
 ]
 
 # The learner's lag dimension, and what you presume the target's memory to be.
-M = [2]
+M = [2, 4, 8]
 
 # The target's contraction constant, matched exactly.  Keep below 1 except for
 # the noise-budget experiment on `logistic` (see NOTE at the foot of this file).
@@ -224,7 +224,6 @@ TORCH_THREADS = 2      # CPU threads; ignored on a GPU
 # ---------------------------------------------------------------------------
 # 9. Where the tensors live.  Scalars, not swept.
 # ---------------------------------------------------------------------------
-#
 # DEVICE  "cpu" | "auto" | "cuda" | "cuda:0" | "mps"
 #         The default is "cpu", deliberately, and on a Mac it should stay that
 #         way.  The Lipschitz penalty differentiates a gradient (`grad_lip`

@@ -1,0 +1,233 @@
+{
+ "targets": [
+  "linear",
+  "hetero",
+  "skew",
+  "smoothnl",
+  "arch",
+  "oscillatory",
+  "logistic",
+  "arma",
+  "longmem"
+ ],
+ "M": [
+  2,
+  4,
+  8
+ ],
+ "S_TARGET": [
+  0.75
+ ],
+ "TARGET_SPECIFICS": {
+  "linear": {
+   "profile": [
+    0.45,
+    0.2
+   ]
+  },
+  "hetero": {
+   "profile": [
+    0.7,
+    0.3
+   ],
+   "s0": 0.45,
+   "s1": 0.45,
+   "kappa": 1.2
+  },
+  "skew": {
+   "profile": [
+    0.7,
+    0.3
+   ],
+   "lam0": 0.7,
+   "kappa": 1.2
+  },
+  "smoothnl": {
+   "profile": [
+    0.47,
+    0.53
+   ],
+   "h": 0.55
+  },
+  "arch": {
+   "profile": [
+    0.667,
+    0.333
+   ],
+   "omega": 0.2
+  },
+  "oscillatory": {
+   "profile": [
+    0.7,
+    0.3
+   ],
+   "omega_osc": 6.0,
+   "s0": 0.4,
+   "s1": 0.1,
+   "kappa": 1.2
+  },
+  "logistic": {
+   "r": 3.7
+  },
+  "arma": {
+   "phi": [
+    0.2
+   ],
+   "theta": [
+    0.25
+   ],
+   "n_pi": 400
+  },
+  "longmem": {
+   "decay": "polynomial",
+   "n_lag": 4000,
+   "alpha": 0.5
+  }
+ },
+ "DATA": {
+  "T_train": [
+   60000
+  ],
+  "burn": [
+   2000
+  ],
+  "seed_path": [
+   1
+  ],
+  "M_state": [
+   1.0
+  ],
+  "noise": [
+   "truncnorm"
+  ]
+ },
+ "NET": {
+  "width": [
+   256
+  ],
+  "act": [
+   "softclip"
+  ],
+  "seed_net": [
+   0
+  ],
+  "v_mode": [
+   "u"
+  ],
+  "v_clip": [
+   2.5
+  ]
+ },
+ "TRAIN": {
+  "objective": [
+   "pinball"
+  ],
+  "epochs": [
+   300
+  ],
+  "batch": [
+   512
+  ],
+  "lr": [
+   0.003
+  ],
+  "lip_mode": [
+   "penalty"
+  ],
+  "pen_region": [
+   "hood"
+  ],
+  "pen_sigma": [
+   0.15
+  ],
+  "L_max": [
+   0.95
+  ],
+  "lam": [
+   1.0
+  ],
+  "tail_frac": [
+   0.2
+  ],
+  "edge": [
+   0.02
+  ],
+  "u_min": [
+   0.0001
+  ],
+  "mmd_block": [
+   4
+  ],
+  "mmd_batch": [
+   256
+  ],
+  "mmd_burn": [
+   32
+  ]
+ },
+ "EVAL": {
+  "T_eval": [
+   40000
+  ],
+  "seed_eval": [
+   99
+  ],
+  "T_shared": [
+   20000
+  ],
+  "seed_shared": [
+   7
+  ],
+  "n_starts": [
+   24
+  ],
+  "n_spread_steps": [
+   80
+  ],
+  "block_len": [
+   4
+  ],
+  "block_stride": [
+   1
+  ],
+  "n_perm": [
+   150
+  ],
+  "mmd_max_n": [
+   900
+  ],
+  "n_bins": [
+   18
+  ],
+  "strike": [
+   0.1
+  ],
+  "n_exercise": [
+   5
+  ]
+ },
+ "DIAGNOSTICS": {
+  "verify_assumptions": true,
+  "hypotheses": true,
+  "repair": true,
+  "pathwise": true,
+  "synchronisation": true,
+  "lyapunov": true,
+  "autocorrelation": true,
+  "marginal": true,
+  "conditional": true,
+  "mmd_test": true,
+  "pricing": true,
+  "esn": true,
+  "baseline": true,
+  "figures": true,
+  "save_net": true
+ },
+ "quick": false,
+ "varying_axes": [
+  "m",
+  "target"
+ ],
+ "device": "cpu",
+ "dtype": "float32"
+}
