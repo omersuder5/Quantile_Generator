@@ -61,7 +61,7 @@ from utils.reporting import (varying_axes, run_dirname, write_json, render_txt,
 
 # Targets whose conditional SCALE depends on the state.  Used only to label
 # the conditional-sd diagnostic, whose range ratio is sampling noise elsewhere.
-STATE_DEPENDENT_SCALE = {"hetero", "arch", "oscillatory"}
+STATE_DEPENDENT_SCALE = {"hetero", "arch", "oscillatory", "garch", "egarch"}
 
 
 # ---------------------------------------------------------------------------
