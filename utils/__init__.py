@@ -9,6 +9,7 @@ marginal         W_1 and the extreme quantiles
 conditional      the conditional sd profile and the conditional W_1
 pricing          European, Bermudan, and the early-exercise premium
 baselines        the matched Gaussian AR null
+realisation      conj:approx: an open-loop ESN against the generator's filter
 plotting         figures, with a fixed three-series colour assignment
 reporting        results.txt, summary.csv, COMPARISON.md
 """
@@ -24,3 +25,6 @@ from .conditional import (default_bins, conditional_sd_profile,
                           conditional_w1_profile, conditional_report)
 from .pricing import european_put, bermudan_put, pricing_report
 from .baselines import MatchedGaussianAR
+from .realisation import (sync_errors, esp_spread, pit_residuals, pit_report,
+                          density_sup, kernel_sandwich, conjectured_bound,
+                          truncated_path)

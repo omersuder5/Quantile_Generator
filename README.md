@@ -54,7 +54,7 @@ config.py                 the only file you edit.  Vectors are swept.
 fit_generator.py          the fitting: pinball (default) or MMD
 quantile_learning.py      runs the whole grid into reports/
 quantile_learning.ipynb   one run, with the reasoning next to the code
-appendix.ipynb            A.1, A.2 and B; not part of the experiment
+appendix.ipynb            A.1, A.2, B and C; not part of the experiment
 
 generators/
     noise.py                  innovation transforms g : [0,1] -> [-c, c]
@@ -62,6 +62,8 @@ generators/
     quantile_generator.py     SoftClip, QuantileNet, the closed recursion,
                               and the repair operators
     esn_realization.py        the exact-shift ESN block
+    open_loop_esn.py          conj:approx: an open-loop ESN driven by the
+                              innovations, readout fitted to the generator
     simulate_paths.py         one simulate() for every generator, plus the
                               shared-stream and spread protocols
 
@@ -80,6 +82,8 @@ utils/                        one module per analysis
     autocorrelation.py        ACF and ACF of squares
     marginal.py               W_1 and the extreme quantiles
     conditional.py            conditional sd profile, conditional W_1
+    realisation.py            conj:approx: filter error, PIT residuals, the
+                              kernel check, the truncated recursion
     pricing.py                European, Bermudan, early-exercise premium
     baselines.py              the matched Gaussian AR null
     plotting.py               figures, fixed three-series colour assignment

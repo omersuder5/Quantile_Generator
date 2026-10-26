@@ -65,6 +65,9 @@ MMD, and the difference is measurable: see §5.
 | `pathwise_report` | `sup_t \|X_t - Xhat_t\|` under the synchronous coupling | same |
 | `lyapunov` | `lambda = E log sum_i \|d qhat / d z_i\|` along the fitted map's own path | `utils/lyapunov.py` |
 | `conditional_report` | the conditional `W_1`, which is the only diagnostic with conditional content | `utils/conditional.py` |
+| `OpenLoopESN` | `conj:approx`: an ESN driven by the innovations only, readout fitted by least squares to `Psi_qhat` | `generators/open_loop_esn.py` |
+| `pit_residuals`, `kernel_sandwich` | Lemma A, step 1, from both sides: `(W_1(uhat) - iid)_+ / f* <= kappa_1 <= (1 + S') eps_1` | `utils/realisation.py` |
+| `truncated_path` | the `m`-truncated recursion with anchor 0, the baseline of `conj:approx`(ii) | same |
 
 Two deliberate asymmetries in that table.
 
@@ -304,6 +307,22 @@ activation must be affine on an interval, and why `tanh` provably will not do.
 The extraction matrix inverts the affine action exactly, so the shift is exact,
 not accurate: `max |ESN - direct recursion| = 7.8e-16` across the 21-run study,
 including at `m = 32`.
+
+### 4.8 The open-loop ESN (Appendix C)
+
+`conj:approx`. The reservoir is random and fixed, it sees the innovations only,
+and nothing is fed back; the readout is fitted by least squares to the
+**generator's** output on one simulated innovation stream and evaluated on a
+held-out block of the same stream. It is a different object from 4.6: a
+genuine approximation of the filter `Psi_qhat` (Gonon-Ortega's `L^p` setting),
+not an exact realisation of the recursion. The synchronous error `eps` is
+not itself an adapted bound, because the ESN is not invertible; the PIT
+residuals along the ESN's own path bound the kernel discrepancy `kappa_1`
+from below, and `(1 + S') eps_1` bounds it from above (Lemma A, step 1).
+Two reservoirs: `random` (Gaussian, the standard ESN) and `multiscale`
+(diagonal, geometric time constants, exactly linear), because
+`conj:approx`(ii) is a claim about which spectrum reaches which rate. The
+findings are in the last cell of `appendix.ipynb`.
 
 ### 4.7 Three innovation protocols, never mixed
 
